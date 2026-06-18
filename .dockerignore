@@ -1,0 +1,12 @@
+.git
+.gradle
+build
+*/build
+.idea
+*.iml
+.env
+*.local
+.DS_Store
+/http
+DEPLOY.md
+README.md

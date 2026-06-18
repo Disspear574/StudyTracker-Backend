@@ -1,0 +1,15 @@
+http:
+  routers:
+    studytracker:
+      rule: "Host(`studytracker.disspear574.ru`)"
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      service: studytracker
+  services:
+    studytracker:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "http://192.168.2.243:8080"

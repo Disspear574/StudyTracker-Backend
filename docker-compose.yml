@@ -1,0 +1,9 @@
+services:
+  studytracker-backend:
+    build: .
+    image: studytracker-backend:latest
+    container_name: studytracker-backend
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"

@@ -1,0 +1,279 @@
+### StudyTracker API — smoke-прогон (IntelliJ / Android Studio HTTP Client)
+
+@host = http://localhost:8080
+@email = test@studytracker.app
+@password = password123
+
+### Health
+GET {{host}}/health
+Accept: application/json
+
+> {%
+client.test("health UP", () => client.assert(response.status === 200));
+%}
+
+### Register (ловит access + refresh токены)
+POST {{host}}/api/v1/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "firstName": "Иван",
+  "lastName": "Иванов",
+  "middleName": "Иванович",
+  "device": { "uuid": "dev-http-1", "os": "ANDROID", "osVersion": "15", "appVersion": "1.0.0", "model": "Pixel" }
+}
+
+> {%
+client.test("register 201", () => client.assert(response.status === 201, "got " + response.status));
+client.global.set("accessToken", response.body.tokens.accessToken);
+client.global.set("refreshToken", response.body.tokens.refreshToken);
+%}
+
+### Register — невалидный email → 400 VALIDATION_ERROR
+POST {{host}}/api/v1/auth/register
+Content-Type: application/json
+
+{
+  "email": "not-an-email",
+  "password": "password123",
+  "firstName": "A",
+  "lastName": "B",
+  "device": { "uuid": "d", "os": "ANDROID", "osVersion": "15", "appVersion": "1.0.0" }
+}
+
+> {%
+client.test("invalid email 400", () => client.assert(response.status === 400));
+client.test("code VALIDATION_ERROR", () => client.assert(response.body.error.code === "VALIDATION_ERROR"));
+%}
+
+### Register — дубль email → 409 CONFLICT
+POST {{host}}/api/v1/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "password123",
+  "firstName": "A",
+  "lastName": "B",
+  "device": { "uuid": "d", "os": "ANDROID", "osVersion": "15", "appVersion": "1.0.0" }
+}
+
+> {%
+client.test("duplicate email 409", () => client.assert(response.status === 409));
+%}
+
+### Login (email в другом регистре — нормализация должна пустить)
+POST {{host}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "TEST@studytracker.app",
+  "password": "{{password}}",
+  "device": { "uuid": "dev-http-1", "os": "ANDROID", "osVersion": "15", "appVersion": "1.0.0", "model": "Pixel" }
+}
+
+> {%
+client.test("login 200 (email case-insensitive)", () => client.assert(response.status === 200, "got " + response.status));
+client.global.set("accessToken", response.body.tokens.accessToken);
+client.global.set("refreshToken", response.body.tokens.refreshToken);
+%}
+
+### GET /me без токена → 401
+GET {{host}}/api/v1/me
+Accept: application/json
+
+> {%
+client.test("no token 401", () => client.assert(response.status === 401));
+%}
+
+### GET /me с токеном
+GET {{host}}/api/v1/me
+Authorization: Bearer {{accessToken}}
+Accept: application/json
+
+> {%
+client.test("me 200", () => client.assert(response.status === 200));
+%}
+
+### PATCH /me (сменить имя)
+PATCH {{host}}/api/v1/me
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{ "firstName": "Пётр" }
+
+> {%
+client.test("patch me 200", () => client.assert(response.status === 200));
+client.test("firstName updated", () => client.assert(response.body.firstName === "Пётр"));
+%}
+
+### PATCH /me — пустое имя → 400
+PATCH {{host}}/api/v1/me
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{ "firstName": "" }
+
+> {%
+client.test("blank name 400", () => client.assert(response.status === 400));
+%}
+
+### Аватар: получить presigned upload-url (ловит objectKey + uploadUrl)
+POST {{host}}/api/v1/me/avatar/upload-url
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{ "contentType": "image/png" }
+
+> {%
+client.test("upload-url 200", () => client.assert(response.status === 200));
+client.global.set("avatarKey", response.body.objectKey);
+client.global.set("avatarUploadUrl", response.body.uploadUrl);
+%}
+
+### Аватар: загрузить файл по presigned URL (нужен ПУБЛИЧНО доступный MINIO_ENDPOINT!)
+PUT {{avatarUploadUrl}}
+Content-Type: image/png
+
+< ./sample-avatar.png
+
+### Аватар: подтвердить (проверка существования + image/* на сервере)
+PUT {{host}}/api/v1/me/avatar
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{ "objectKey": "{{avatarKey}}" }
+
+> {%
+client.test("confirm avatar 200", () => client.assert(response.status === 200));
+%}
+
+### Создать задачу (ловит taskId)
+POST {{host}}/api/v1/tasks
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "title": "Экзамен по математике",
+  "description": "Глава 5",
+  "date": "2026-06-01",
+  "startTime": "09:00",
+  "intervalStart": "09:00",
+  "intervalEnd": "09:45",
+  "color": "BLUE",
+  "notificationOffset": "TEN_MINUTES"
+}
+
+> {%
+client.test("create task 201", () => client.assert(response.status === 201));
+client.global.set("taskId", response.body.id);
+%}
+
+### Список задач за дату (прогресс completed/total)
+GET {{host}}/api/v1/tasks?date=2026-06-01
+Authorization: Bearer {{accessToken}}
+Accept: application/json
+
+> {%
+client.test("list 200", () => client.assert(response.status === 200));
+client.test("has 1 task", () => client.assert(response.body.total >= 1));
+%}
+
+### Получить одну задачу
+GET {{host}}/api/v1/tasks/{{taskId}}
+Authorization: Bearer {{accessToken}}
+Accept: application/json
+
+> {%
+client.test("get task 200", () => client.assert(response.status === 200));
+%}
+
+### Обновить задачу
+PATCH {{host}}/api/v1/tasks/{{taskId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "title": "Экзамен по математике (перенос)",
+  "date": "2026-06-02",
+  "startTime": "10:00",
+  "color": "RED"
+}
+
+> {%
+client.test("update task 200", () => client.assert(response.status === 200));
+%}
+
+### Отметить выполненной
+PATCH {{host}}/api/v1/tasks/{{taskId}}/complete
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{ "isCompleted": true }
+
+> {%
+client.test("complete 200", () => client.assert(response.status === 200));
+client.test("isCompleted true", () => client.assert(response.body.isCompleted === true));
+%}
+
+### Чужая/несуществующая задача → 404
+GET {{host}}/api/v1/tasks/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{accessToken}}
+Accept: application/json
+
+> {%
+client.test("missing task 404", () => client.assert(response.status === 404));
+%}
+
+### Удалить задачу
+DELETE {{host}}/api/v1/tasks/{{taskId}}
+Authorization: Bearer {{accessToken}}
+
+> {%
+client.test("delete task 204", () => client.assert(response.status === 204));
+%}
+
+### Refresh — ротация (ловит НОВЫЙ refresh, старый {{refreshToken}} оставляем для reuse-теста)
+POST {{host}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{ "refreshToken": "{{refreshToken}}" }
+
+> {%
+client.test("refresh 200", () => client.assert(response.status === 200));
+client.global.set("newRefreshToken", response.body.refreshToken);
+%}
+
+### Refresh REUSE старого токена → 401 (детект переиспользования)
+POST {{host}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{ "refreshToken": "{{refreshToken}}" }
+
+> {%
+client.test("reuse detected 401", () => client.assert(response.status === 401));
+%}
+
+### Logout (новым refresh-токеном)
+POST {{host}}/api/v1/auth/logout
+Content-Type: application/json
+
+{ "refreshToken": "{{newRefreshToken}}" }
+
+> {%
+client.test("logout 204", () => client.assert(response.status === 204));
+%}
+
+### Forgot password (заглушка — всегда 200)
+POST {{host}}/api/v1/auth/forgot-password
+Content-Type: application/json
+
+{ "email": "{{email}}" }
+
+> {%
+client.test("forgot 200", () => client.assert(response.status === 200));
+%}
+
+### (опционально) Удалить аккаунт — чтобы прогнать заново с тем же email

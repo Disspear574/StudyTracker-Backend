@@ -1,0 +1,485 @@
+openapi: 3.0.3
+info:
+  title: StudyTracker API
+  version: "1.0.0"
+  description: |
+    Бэкенд трекера учебных задач. Аутентификация — JWT (access + refresh с ротацией).
+    Защищённые эндпоинты требуют заголовок `Authorization: Bearer <accessToken>`.
+    Все даты/время — ISO-8601; timestamp'ы в UTC.
+
+servers:
+  - url: https://studytracker.disspear574.ru/api/v1
+    description: prod
+  - url: http://localhost:8080/api/v1
+    description: local
+
+tags:
+  - name: Auth
+    description: Регистрация, вход, ротация токенов
+  - name: Profile
+    description: Профиль пользователя и аватар
+  - name: Tasks
+    description: Учебные задачи
+  - name: System
+    description: Служебные эндпоинты
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Регистрация
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: Создан; возвращаются токены и профиль
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Вход
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Обновить токены (ротация + детект переиспользования)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
+      responses:
+        "200":
+          description: Новая пара токенов
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPairResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Выход (отзыв refresh-токена)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
+      responses:
+        "204": { description: Отозвано (идемпотентно) }
+
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Восстановление пароля (заглушка, всегда 200)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ForgotPasswordRequest" }
+      responses:
+        "200": { description: OK }
+
+  /me:
+    get:
+      tags: [Profile]
+      summary: Текущий профиль
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    patch:
+      tags: [Profile]
+      summary: Изменить профиль
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateProfileRequest" }
+      responses:
+        "200":
+          description: Обновлённый профиль
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [Profile]
+      summary: Удалить аккаунт (каскад задач/токенов/сессий)
+      responses:
+        "204": { description: Удалён }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /me/avatar/upload-url:
+    post:
+      tags: [Profile]
+      summary: Presigned URL для загрузки аватара
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AvatarUploadUrlRequest" }
+      responses:
+        "200":
+          description: Ссылка для PUT + ключ объекта
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AvatarUploadUrlResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /me/avatar:
+    put:
+      tags: [Profile]
+      summary: Подтвердить загруженный аватар (проверка существования + image/*)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConfirmAvatarRequest" }
+      responses:
+        "200":
+          description: Профиль с avatarUrl
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /tasks:
+    get:
+      tags: [Tasks]
+      summary: Задачи за дату (+ прогресс completed/total)
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date, example: "2026-06-01" }
+      responses:
+        "200":
+          description: Список задач дня
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskListResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Tasks]
+      summary: Создать задачу
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskRequest" }
+      responses:
+        "201":
+          description: Создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /tasks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Tasks]
+      summary: Получить задачу
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Tasks]
+      summary: Обновить задачу (полное содержимое)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskRequest" }
+      responses:
+        "200":
+          description: Обновлена
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Tasks]
+      summary: Удалить задачу
+      responses:
+        "204": { description: Удалена }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /tasks/{id}/complete:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Tasks]
+      summary: Отметить выполнение
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompleteRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    ValidationError:
+      description: Ошибка валидации
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Unauthorized:
+      description: Не авторизован / невалидный токен
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Forbidden:
+      description: Доступ запрещён
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    NotFound:
+      description: Не найдено (в т.ч. чужой ресурс)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Conflict:
+      description: Конфликт (email занят)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  schemas:
+    OsType:
+      type: string
+      enum: [ANDROID, IOS]
+    TaskColor:
+      type: string
+      enum: [BLUE, RED, ORANGE, GRAY, GREEN, YELLOW, TEAL, PURPLE]
+    NotificationOffset:
+      type: string
+      enum: [TEN_MINUTES, ONE_HOUR, ONE_DAY]
+
+    DeviceDto:
+      type: object
+      required: [uuid, os, osVersion, appVersion]
+      properties:
+        uuid: { type: string }
+        os: { $ref: "#/components/schemas/OsType" }
+        osVersion: { type: string }
+        appVersion: { type: string }
+        model: { type: string, nullable: true }
+
+    RegisterRequest:
+      type: object
+      required: [email, password, firstName, lastName, device]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        firstName: { type: string }
+        lastName: { type: string }
+        middleName: { type: string, nullable: true }
+        device: { $ref: "#/components/schemas/DeviceDto" }
+
+    LoginRequest:
+      type: object
+      required: [email, password, device]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+        device: { $ref: "#/components/schemas/DeviceDto" }
+
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string }
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+
+    TokenPairResponse:
+      type: object
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        accessExpiresAt: { type: string, format: date-time }
+
+    UserResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        firstName: { type: string }
+        lastName: { type: string }
+        middleName: { type: string, nullable: true }
+        avatarUrl: { type: string, nullable: true }
+
+    AuthResponse:
+      type: object
+      properties:
+        tokens: { $ref: "#/components/schemas/TokenPairResponse" }
+        user: { $ref: "#/components/schemas/UserResponse" }
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        firstName: { type: string, nullable: true }
+        lastName: { type: string, nullable: true }
+        middleName: { type: string, nullable: true }
+        email: { type: string, format: email, nullable: true }
+
+    AvatarUploadUrlRequest:
+      type: object
+      required: [contentType]
+      properties:
+        contentType: { type: string, example: "image/png" }
+
+    AvatarUploadUrlResponse:
+      type: object
+      properties:
+        uploadUrl: { type: string }
+        objectKey: { type: string }
+        expiresAt: { type: string, format: date-time }
+
+    ConfirmAvatarRequest:
+      type: object
+      required: [objectKey]
+      properties:
+        objectKey: { type: string }
+
+    TaskRequest:
+      type: object
+      required: [title, date, startTime, color]
+      properties:
+        title: { type: string, maxLength: 200 }
+        description: { type: string, nullable: true }
+        date: { type: string, format: date, example: "2026-06-01" }
+        startTime: { type: string, example: "09:00" }
+        intervalStart: { type: string, nullable: true, example: "09:00" }
+        intervalEnd: { type: string, nullable: true, example: "09:45" }
+        color: { $ref: "#/components/schemas/TaskColor" }
+        notificationOffset:
+          allOf: [ { $ref: "#/components/schemas/NotificationOffset" } ]
+          nullable: true
+
+    CompleteRequest:
+      type: object
+      required: [isCompleted]
+      properties:
+        isCompleted: { type: boolean }
+
+    TaskResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        date: { type: string, format: date }
+        startTime: { type: string }
+        intervalStart: { type: string, nullable: true }
+        intervalEnd: { type: string, nullable: true }
+        color: { $ref: "#/components/schemas/TaskColor" }
+        notificationOffset:
+          allOf: [ { $ref: "#/components/schemas/NotificationOffset" } ]
+          nullable: true
+        isCompleted: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    TaskListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/TaskResponse" }
+        completed: { type: integer }
+        total: { type: integer }
+
+    FieldError:
+      type: object
+      properties:
+        field: { type: string }
+        message: { type: string }
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, RATE_LIMITED, INTERNAL]
+            message: { type: string }
+            details:
+              type: array
+              items: { $ref: "#/components/schemas/FieldError" }
