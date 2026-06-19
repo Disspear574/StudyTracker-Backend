@@ -8,7 +8,7 @@ info:
     Все даты/время — ISO-8601; timestamp'ы в UTC.
 
 servers:
-  - url: https://studytracker.disspear574.ru/api/v1
+  - url: https://studytracker-api.disspear574.ru/api/v1
     description: prod
   - url: http://localhost:8080/api/v1
     description: local

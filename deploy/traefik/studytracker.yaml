@@ -1,7 +1,7 @@
 http:
   routers:
     studytracker:
-      rule: "Host(`studytracker.disspear574.ru`)"
+      rule: "Host(`studytracker-api.disspear574.ru`)"
       entryPoints:
         - websecure
       tls:

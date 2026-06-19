@@ -9,12 +9,12 @@
 | Postgres 16 | 104 | **192.168.2.238:5432** (listen `*`, pg_hba пускает 192.168.2.0/24) |
 | **Docker host (сюда бэк)** | 105 | **192.168.2.243** (порт **8080** свободен) |
 
-Бэк = docker-контейнер в LXC 105, публикует `:8080`; Traefik роутит `studytracker.disspear574.ru` → `http://192.168.2.243:8080`.
+Бэк = docker-контейнер в LXC 105, публикует `:8080`; Traefik роутит `studytracker-api.disspear574.ru` → `http://192.168.2.243:8080`.
 
 ---
 
 ## 1. DNS
-Создай A-запись `studytracker.disspear574.ru` → твой публичный IP (как у `react.`/`minio-api.`).
+Создай A-запись `studytracker-api.disspear574.ru` → твой публичный IP (как у `react.`/`minio-api.`).
 Нужно для Let's Encrypt (HTTP-challenge) и доступа.
 
 ## 2. Postgres (LXC 104) — создать БД и юзера
@@ -55,9 +55,9 @@ pct push 102 deploy/traefik/studytracker.yaml /etc/traefik/conf.d/studytracker.y
 
 ## 6. Проверка
 ```bash
-curl https://studytracker.disspear574.ru/health
+curl https://studytracker-api.disspear574.ru/health
 ```
-Полный прогон API — `http/studytracker.http` (поставь `@host = https://studytracker.disspear574.ru`).
+Полный прогон API — `http/studytracker.http` (поставь `@host = https://studytracker-api.disspear574.ru`).
 Аватары: presigned-ссылки будут на `https://minio-api.disspear574.ru` — открываются и снаружи.
 
 ## Бэкапы
